@@ -1,15 +1,19 @@
 {
-  "name": "magazzino-backend",
+  "name": "magazzino",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node dist/index.js"
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "import:csv": "tsx src/import-csv.ts",
+    "export:csv": "tsx src/export-csv.ts"
   },
   "keywords": [],
-  "type": "commonjs",
+  "type": "module",
   "dependencies": {
     "better-sqlite3": "^13.0.2",
     "express": "^5.2.1"
