@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SELECT_ARTICOLO, getArticolo, getLunghezzaBarra, getMateriali, trovaOCreaMateriale, type Db } from './db.js';
 import { applicaMovimento, parseNumero } from './domain.js';
+import { esportaCsv, nomeFileExport } from './export-csv.js';
 import type { Articolo, Modo } from './types.js';
 
 class ErroreHttp extends Error {
@@ -104,6 +105,13 @@ export function creaApp(db: Db, opts: { adminPassword?: string | undefined } = {
     // --- amministrazione ------------------------------------------------------
     app.get('/api/admin/magazzino', soloAdmin, (_req, res) => {
         res.json({ err: 'ok', data: db.prepare(`${SELECT_ARTICOLO} ORDER BY mt.ordine, mt.nome, m.forma, m.misura, m.spessore`).all() });
+    });
+
+    // ?formato=excel -> ';', virgola decimale e BOM per Excel italiano
+    app.get('/api/admin/export.csv', soloAdmin, (req, res) => {
+        res.type('text/csv; charset=utf-8')
+            .attachment(nomeFileExport())
+            .send(esportaCsv(db, { excel: req.query.formato === 'excel' }));
     });
 
     const leggiArticolo = (b: Record<string, unknown>) => ({

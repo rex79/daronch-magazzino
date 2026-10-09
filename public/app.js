@@ -172,6 +172,7 @@ async function admin() {
   render(`${back('#/')}<h1>Amministrazione magazzino</h1>
     <div class="row"><label>Lunghezza barra (m)<input id="lung" value="${fmt(imp.lunghezza_barra_m)}"></label>
       <button id="salva-lung">Salva lunghezza</button><button id="nuovo" class="primary">+ Nuovo articolo</button></div>
+    <div class="row"><button id="exp-excel">Esporta CSV (Excel)</button><button id="exp-csv">Esporta CSV (standard)</button></div>
     <input id="cerca" placeholder="Ricerca materiale" style="margin-bottom:12px">
     <div class="scroll"><table><thead><tr><th>Materiale</th><th>Forma</th><th>Misura</th><th>Spess.</th><th>Barre</th><th>Kg</th><th>Peso kg/m</th><th>Note</th><th></th></tr></thead>
     <tbody id="righe"></tbody></table></div>`);
@@ -189,6 +190,19 @@ async function admin() {
     try { await api('/api/impostazioni', { method: 'PUT', admin: true, body: { lunghezza_barra_m: document.getElementById('lung').value } }); admin(); }
     catch (e) { avviso(e.message); }
   };
+  const esporta = (formato) => async () => {
+    try {
+      const res = await fetch(`/api/admin/export.csv?formato=${formato}`, { headers: { 'x-admin-password': password } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).err ?? `Errore ${res.status}`);
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(await res.blob()),
+        download: /filename="?([^";]+)/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'magazzino.csv',
+      });
+      a.click(); URL.revokeObjectURL(a.href);
+    } catch (e) { avviso(e.message); }
+  };
+  document.getElementById('exp-excel').onclick = esporta('excel');
+  document.getElementById('exp-csv').onclick = esporta('standard');
   document.getElementById('nuovo').onclick = () => formArticolo(null);
   tbody.onclick = async (e) => {
     const id = Number(e.target.dataset.e ?? e.target.dataset.d);
