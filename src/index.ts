@@ -1,19 +1,10 @@
-import express, { Request, Response } from 'express';
+import { creaApp } from './app.js';
+import { apriDb } from './db.js';
 
-// models
-import { getMateriali } from './db';
-
-const app = express();
-const PORT = 3000;
-
-app.get("/api/materiali", (req: Request, res: Response) => {
-    res.json({err: 'ok', data: getMateriali() });
-});
-
-app.get("/api/ciao", (req: Request, res: Response) => {
-    res.json({ err: 'ok', data: 'il server risponde'});
-});
+const PORT = Number(process.env.PORT ?? 3000);
+const app = creaApp(apriDb(), { adminPassword: process.env.ADMIN_PASSWORD });
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log("il server è in ascolto alla porta 3000");
-})
+    console.log(`Magazzino in ascolto su http://localhost:${PORT}`);
+    if (!process.env.ADMIN_PASSWORD) console.warn('ATTENZIONE: ADMIN_PASSWORD non impostata, l\'area admin è aperta');
+});
