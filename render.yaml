@@ -1,0 +1,13 @@
+# Blueprint Render: New + > Blueprint, scegli questo repo. I segreti si inseriscono dal pannello.
+services:
+  - type: web
+    name: magazzino
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

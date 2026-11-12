@@ -1,35 +1,36 @@
-# Deploy su Koyeb (piano gratuito)
+# Deploy su Render + Neon (piani gratuiti)
+
+Database Postgres su **Neon**, app su **Render** (Docker). Koyeb non è più utilizzabile gratuitamente per i nuovi account.
 
 Chi fa cosa: **[Tu]** passaggi con account, password e token; **[Io]** passaggi che posso eseguire dopo il tuo ok.
 
 ## 0. Prima di iniziare
 - [ ] Le PR "Passaggio da SQLite a PostgreSQL" e "Deploy" sono mergiate su `main`.
-- [ ] **[Tu]** Registrati su Koyeb con il piano gratuito e collega l'account GitHub (accesso al repo `rex79/daronch-magazzino`).
 - [ ] **[Tu]** Scegli una password per l'area admin e conservala nel tuo gestore password.
+- [ ] **[Tu]** Crea l'account su [Neon](https://neon.com) e su [Render](https://render.com) (con GitHub, senza carta se non la chiedono: se compare una richiesta di carta, fermati e ricontrolla il piano scelto).
 
-## 1. Database
-- [ ] **[Tu/Io]** Crea un servizio Database gratuito (Postgres) su Koyeb, nella stessa regione dell'app (Francoforte è la scelta più vicina).
-- [ ] Copia la stringa di connessione. Se non finisce già con `?sslmode=require`, aggiungilo.
-- Nota: il database gratuito ha ore di calcolo mensili limitate e va in pausa dopo qualche minuto senza richieste. Controlla il consumo nel primo mese.
+## 1. Database su Neon
+- [ ] **[Tu]** Crea un progetto, regione **Francoforte** (`eu-central-1`), per avere poca latenza con Render.
+- [ ] Copia la stringa di connessione (dal pulsante "Connect"). Deve essere del tipo `postgresql://utente:password@host/db?sslmode=require`.
+- [ ] Se l'app non riesce a connettersi e la stringa contiene `channel_binding=require`, rimuovi quel parametro.
+- Nota: il database va in pausa dopo 5 minuti senza richieste e riparte da solo; il piano gratuito ha 100 ore di calcolo al mese e 1 GB di spazio, più che sufficienti per questo uso. Condizioni da ricontrollare sul sito, cambiano spesso.
 
-## 2. Servizio web
-- [ ] Crea un servizio **Web** da GitHub: repo `rex79/daronch-magazzino`, branch `main`, builder **Dockerfile** (il `Dockerfile` è nella radice).
-- [ ] Istanza: **Free**.
-- [ ] Porta esposta: **8000** (l'immagine ascolta su `PORT=8000`).
-- [ ] Variabili d'ambiente (le inserisci tu, come segreti):
-  - `DATABASE_URL` = stringa di connessione del punto 1
+## 2. App su Render
+- [ ] **[Tu]** New + > **Blueprint** e scegli il repo `rex79/daronch-magazzino`: Render legge `render.yaml` (servizio web Docker, piano **Free**, Francoforte).
+- [ ] **[Tu]** Quando lo chiede, inserisci come segreti:
+  - `DATABASE_URL` = stringa di connessione di Neon
   - `ADMIN_PASSWORD` = la password scelta
-- [ ] Health check: quello TCP di default va bene.
-- [ ] Avvia il deploy e attendi lo stato "Healthy". Le tabelle si creano da sole al primo avvio.
+- [ ] Controlla che il piano mostrato sia **Free** prima di confermare.
+- [ ] Attendi il deploy: lo stato diventa "Live" e le tabelle si creano da sole al primo avvio.
+- Nota: il servizio gratuito si addormenta dopo 15 minuti senza richieste e la prima richiesta successiva impiega circa un minuto. Ha un tetto di 750 ore al mese: per un solo servizio basta.
 
 ## 3. Verifiche dopo il deploy
-- [ ] Apri l'URL pubblico: compare la lista dei materiali (vuota prima dell'import).
+- [ ] Apri l'URL pubblico (`https://magazzino-xxxx.onrender.com`): compare la lista dei materiali (vuota prima dell'import).
 - [ ] `/#/admin` chiede la password e la accetta.
 - [ ] In Admin crea un articolo di prova, registra un carico, poi eliminalo.
-- [ ] Il servizio gratuito si addormenta dopo un'ora senza richieste: la prima richiesta successiva è lenta, è normale.
 
 ## 4. Import finale da Heroku
-Da fare sul tuo Mac, a progetto concluso. L'import gira in locale e scrive sul database di Koyeb.
+Da fare sul tuo Mac, a progetto concluso. L'import gira in locale e scrive sul database di Neon.
 
 - [ ] Esporta gli articoli da Heroku (sostituisci `NOME_APP`):
   ```bash
@@ -38,11 +39,11 @@ Da fare sul tuo Mac, a progetto concluso. L'import gira in locale e scrive sul d
   ```
 - [ ] Importa gli articoli sul nuovo database:
   ```bash
-  DATABASE_URL='<stringa di connessione Koyeb>' npm run import:csv -- export.csv
+  DATABASE_URL='<stringa di connessione Neon>' npm run import:csv -- export.csv
   ```
 - [ ] Applica l'ordine dei materiali (gli articoli non lo contengono):
   ```bash
-  psql '<stringa di connessione Koyeb>' -c "create temp table m(nome text, ordine int)" \
+  psql '<stringa di connessione Neon>' -c "create temp table m(nome text, ordine int)" \
     -c "\copy m from 'materiali.csv' csv header" \
     -c "update materiali t set ordine = m.ordine from m where m.nome = t.nome"
   ```
@@ -54,4 +55,4 @@ Da fare sul tuo Mac, a progetto concluso. L'import gira in locale e scrive sul d
 
 ## 5. Dopo il lancio
 - [ ] Pianifica un export CSV periodico (da Admin o con `npm run export:csv`) come backup di emergenza.
-- [ ] Controlla ogni tanto il consumo del database gratuito.
+- [ ] Controlla ogni tanto il consumo di ore di calcolo su Neon.
