@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { creaApp } from './app.js';
-import { apriDb, trovaOCreaMateriale } from './db.js';
+import { trovaOCreaMateriale } from './db.js';
+import { apriDbTest } from './test-db.js';
 import { applicaMovimento, parseNumero } from './domain.js';
 import { esportaCsv } from './export-csv.js';
 
@@ -26,9 +27,9 @@ test('peso zero è rifiutato', () => {
 });
 
 test('API: flusso completo', async () => {
-    const db = apriDb(':memory:');
-    const mid = trovaOCreaMateriale(db, 'AVP');
-    db.prepare('INSERT INTO magazzino (materiale_id, forma, misura, peso, barre) VALUES (?, ?, ?, ?, ?)').run(mid, 'TONDO', 3, 0.055, 115);
+    const db = await apriDbTest();
+    const mid = await trovaOCreaMateriale(db, 'AVP');
+    await db.query('INSERT INTO magazzino (materiale_id, forma, misura, peso, barre) VALUES ($1, $2, $3, $4, $5)', [mid, 'TONDO', 3, 0.055, 115]);
     const server = creaApp(db, { adminPassword: 'x' }).listen(0);
     const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
@@ -44,18 +45,18 @@ test('API: flusso completo', async () => {
             body: JSON.stringify({ lunghezza_barra_m: 6 }) });
         assert.equal(imp.status, 200);
         assert.equal((await (await fetch(`${base}/api/articoli/${a.id}`)).json()).data.quantita, 36.3);
-    } finally { server.close(); }
+    } finally { server.close(); await db.close(); }
 });
 
 test('export CSV: standard, Excel e round-trip con l\'import', async () => {
-    const db = apriDb(':memory:');
-    const mid = trovaOCreaMateriale(db, 'AVP');
-    db.prepare('INSERT INTO magazzino (materiale_id, forma, misura, peso, barre, quantita, note) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(mid, 'TONDO', 3.5, 0.076, 10, 2.28, 'con "virgolette", e virgola');
-    const std = esportaCsv(db).split('\r\n');
+    const db = await apriDbTest();
+    const mid = await trovaOCreaMateriale(db, 'AVP');
+    await db.query('INSERT INTO magazzino (materiale_id, forma, misura, peso, barre, quantita, note) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [mid, 'TONDO', 3.5, 0.076, 10, 2.28, 'con "virgolette", e virgola']);
+    const std = (await esportaCsv(db)).split('\r\n');
     assert.equal(std[0], 'id,materiale,forma,misura,peso,barre,quantita,created_at,updated_at,note,spessore');
-    assert.match(std[1]!, /^1,AVP,TONDO,3\.5,0\.076,10,2\.28,.*,"con ""virgolette"", e virgola",$/);
-    const xl = esportaCsv(db, { excel: true });
+    assert.match(std[1]!, /^\d+,AVP,TONDO,3\.5,0\.076,10,2\.28,.*,"con ""virgolette"", e virgola",$/);
+    const xl = await esportaCsv(db, { excel: true });
     assert.ok(xl.startsWith('\uFEFFid;materiale'));
     assert.match(xl, /;AVP;TONDO;3,5;0,076;10;2,28;/);
     const server = creaApp(db, { adminPassword: 'x' }).listen(0);
@@ -64,6 +65,6 @@ test('export CSV: standard, Excel e round-trip con l\'import', async () => {
         assert.equal((await fetch(`${base}/api/admin/export.csv`)).status, 401);
         const r = await fetch(`${base}/api/admin/export.csv`, { headers: { 'x-admin-password': 'x' } });
         assert.match(r.headers.get('content-disposition') ?? '', /magazzino_\d{4}-\d{2}-\d{2}\.csv/);
-        assert.equal(await r.text(), esportaCsv(db));
-    } finally { server.close(); }
+        assert.equal(await r.text(), await esportaCsv(db));
+    } finally { server.close(); await db.close(); }
 });

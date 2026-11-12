@@ -42,5 +42,5 @@
     "skipLibCheck": true,
     "esModuleInterop": true
   },
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": ["src/**/*.test.ts", "src/test-db.ts"]
 }

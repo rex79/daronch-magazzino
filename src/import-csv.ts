@@ -2,7 +2,7 @@
 // Formati: export Postgres (con intestazione: materiale,forma,misura,peso,barre,quantita,note,spessore)
 //          legacy all.csv (senza intestazione, '#': materiale#forma#misura#peso#barre#note)
 import fs from 'node:fs';
-import { apriDb, getLunghezzaBarra, trovaOCreaMateriale } from './db.js';
+import { apriDb, getLunghezzaBarra, inizializza, trovaOCreaMateriale } from './db.js';
 import { kgDaBarre, parseNumero } from './domain.js';
 
 export function parseCsv(testo: string, sep: string): string[][] {
@@ -39,28 +39,32 @@ if (process.argv[1]?.endsWith('import-csv.ts')) {
     if (!args.includes('--senza-intestazione')) colonne = righe.shift()!.map((c) => c.trim());
 
     const db = apriDb();
-    const lunghezza = getLunghezzaBarra(db);
-    const ins = db.prepare(`INSERT INTO magazzino (materiale_id, forma, misura, spessore, peso, barre, quantita, note)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                            ON CONFLICT DO UPDATE SET peso = excluded.peso, barre = excluded.barre,
-                              quantita = excluded.quantita, note = excluded.note`);
-    let n = 0, saltate = 0;
-    db.transaction(() => {
-        for (const r of righe) {
-            const v = Object.fromEntries(colonne.map((c, i) => [c, (r[i] ?? '').trim()]));
-            const misura = parseNumero(v.misura), peso = parseNumero(v.peso);
-            if (!v.materiale || !v.forma || !Number.isFinite(misura) || !Number.isFinite(peso)) { saltate++; continue; }
-            const spessore = parseNumero(v.spessore ?? '');
-            let barre = parseNumero(v.barre ?? '');
-            if (!Number.isFinite(barre)) {
-                const kg = parseNumero(v.quantita ?? '');
-                barre = Number.isFinite(kg) && peso > 0 ? kg / (peso * lunghezza) : 0;
+    try {
+        await inizializza(db);
+        const lunghezza = await getLunghezzaBarra(db);
+        let n = 0, saltate = 0;
+        await db.transaction(async (tx) => {
+            for (const r of righe) {
+                const v = Object.fromEntries(colonne.map((c, i) => [c, (r[i] ?? '').trim()]));
+                const misura = parseNumero(v.misura), peso = parseNumero(v.peso);
+                if (!v.materiale || !v.forma || !Number.isFinite(misura) || !Number.isFinite(peso)) { saltate++; continue; }
+                const spessore = parseNumero(v.spessore ?? '');
+                let barre = parseNumero(v.barre ?? '');
+                if (!Number.isFinite(barre)) {
+                    const kg = parseNumero(v.quantita ?? '');
+                    barre = Number.isFinite(kg) && peso > 0 ? kg / (peso * lunghezza) : 0;
+                }
+                await tx.query(`INSERT INTO magazzino (materiale_id, forma, misura, spessore, peso, barre, quantita, note)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                                ON CONFLICT (materiale_id, forma, misura, (COALESCE(spessore, 0))) DO UPDATE SET
+                                  peso = excluded.peso, barre = excluded.barre, quantita = excluded.quantita,
+                                  note = excluded.note, updated_at = now()`,
+                    [await trovaOCreaMateriale(tx, v.materiale), v.forma.toUpperCase(), misura,
+                        Number.isFinite(spessore) && spessore !== 0 ? spessore : null, peso, barre,
+                        kgDaBarre(barre, peso, lunghezza), v.note || null]);
+                n++;
             }
-            ins.run(trovaOCreaMateriale(db, v.materiale), v.forma.toUpperCase(), misura,
-                Number.isFinite(spessore) && spessore !== 0 ? spessore : null, peso, barre,
-                kgDaBarre(barre, peso, lunghezza), v.note || null);
-            n++;
-        }
-    })();
-    console.log(`Importate ${n} righe, saltate ${saltate}`);
+        });
+        console.log(`Importate ${n} righe, saltate ${saltate}`);
+    } finally { await db.close(); }
 }
