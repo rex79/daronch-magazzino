@@ -16,12 +16,13 @@ function cella(v: unknown, { excel }: OpzioniCsv): string {
     return s.includes(sep) || /["\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 
-export function esportaCsv(db: Db, opzioni: OpzioniCsv = {}): string {
-    const righe = db.prepare(`
+export async function esportaCsv(db: Db, opzioni: OpzioniCsv = {}): Promise<string> {
+    const righe = await db.query<Record<string, unknown>>(`
         SELECT m.id, mt.nome AS materiale, m.forma, m.misura, m.peso, m.barre, m.quantita,
-               m.created_at, m.updated_at, m.note, m.spessore
+               to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS created_at,
+               to_char(m.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS updated_at, m.note, m.spessore
         FROM magazzino m JOIN materiali mt ON mt.id = m.materiale_id
-        ORDER BY mt.ordine, mt.nome, m.forma, m.misura, m.spessore`).all() as Record<string, unknown>[];
+        ORDER BY mt.ordine, mt.nome, m.forma, m.misura, m.spessore`);
     const sep = opzioni.excel ? ';' : ',';
     const out = [COLONNE.join(sep), ...righe.map((r) => COLONNE.map((c) => cella(r[c], opzioni)).join(sep))];
     return (opzioni.excel ? '﻿' : '') + out.join('\r\n') + '\r\n';
@@ -32,6 +33,9 @@ export const nomeFileExport = (d = new Date()): string => `magazzino_${d.toISOSt
 if (process.argv[1]?.endsWith('export-csv.ts')) {
     const args = process.argv.slice(2);
     const file = args.find((a) => !a.startsWith('--'));
-    const csv = esportaCsv(apriDb(), { excel: args.includes('--excel') });
-    if (file) { fs.writeFileSync(file, csv); console.log(`Esportato in ${file}`); } else process.stdout.write(csv);
+    const db = apriDb();
+    try {
+        const csv = await esportaCsv(db, { excel: args.includes('--excel') });
+        if (file) { fs.writeFileSync(file, csv); console.log(`Esportato in ${file}`); } else process.stdout.write(csv);
+    } finally { await db.close(); }
 }
