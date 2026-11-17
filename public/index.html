@@ -2,13 +2,32 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1b2129">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Magazzino">
   <title>Magazzino</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header><a href="#/" class="logo">Magazzino</a><a href="#/admin" class="admin-link">Admin</a></header>
+  <header class="barra">
+    <button class="indietro" id="indietro" hidden aria-label="Indietro">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Indietro</span>
+    </button>
+    <a href="#/" class="logo" id="logo">Magazzino</a>
+    <div class="percorso" id="percorso"></div>
+    <a href="#/admin" class="admin-link" id="admin-link">Admin</a>
+    <button class="schermo" id="schermo" aria-label="Schermo intero" title="Schermo intero">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+  </header>
   <main id="app"></main>
+  <div class="toast" id="toast" role="status" hidden></div>
   <dialog id="dialog"></dialog>
   <script type="module" src="app.js"></script>
 </body>
