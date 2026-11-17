@@ -1,9 +1,12 @@
 const app = document.getElementById('app');
 const dialog = document.getElementById('dialog');
+const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const fmt = (n) => (n == null ? '' : String(Math.round(n * 1000) / 1000).replace('.', ','));
 const enc = encodeURIComponent;
-let password = sessionStorage.getItem('adminPassword') ?? '';
+const leggi = (k) => { try { return sessionStorage.getItem(k); } catch { return null; } };
+const scrivi = (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* storage non disponibile */ } };
+let password = leggi('adminPassword') ?? '';
 
 async function api(url, { method = 'GET', body, admin = false } = {}) {
   const headers = { 'content-type': 'application/json' };
@@ -12,7 +15,7 @@ async function api(url, { method = 'GET', body, admin = false } = {}) {
   const json = await res.json().catch(() => ({}));
   if (res.status === 401 && admin) {
     password = await chiedi('Password amministratore', { password: true });
-    sessionStorage.setItem('adminPassword', password);
+    scrivi('adminPassword', password);
     if (password) return api(url, { method, body, admin });
   }
   if (!res.ok) throw new Error(json.err ?? `Errore ${res.status}`);
@@ -23,47 +26,78 @@ async function api(url, { method = 'GET', body, admin = false } = {}) {
 function chiedi(testo, { password: pw = false, conferma = false } = {}) {
   return new Promise((resolve) => {
     dialog.innerHTML = `<form method="dialog"><h2>${esc(testo)}</h2>${conferma ? '' : `<input name="v" type="${pw ? 'password' : 'text'}" autofocus>`}
-      <div class="row" style="margin-top:12px"><button value="cancel">Annulla</button><button class="primary" value="ok">OK</button></div></form>`;
+      <div class="row" style="margin-top:12px"><button type="button" data-annulla>Annulla</button><button class="primary" value="ok">OK</button></div></form>`;
+    // "Annulla" non è un pulsante di invio, così Invio conferma invece di annullare
+    dialog.querySelector('[data-annulla]').onclick = () => dialog.close('cancel');
     dialog.onclose = () => resolve(conferma ? dialog.returnValue === 'ok' : dialog.returnValue === 'ok' ? dialog.querySelector('input').value : '');
     dialog.showModal();
   });
 }
 const avviso = (testo) => chiedi(testo, { conferma: true });
-
 const back = (href) => `<a class="back" href="${href}">← Torna indietro</a>`;
-const render = (html) => { app.innerHTML = html; };
+const render = (html) => { app.innerHTML = html; app.scrollTop = 0; };
 
-// tastierino: lega un display e i tasti, restituisce { valore() }
-function tastierino(extra = '') {
-  const tasti = ['1','2','3','4','5','6','7','8','9',',','0','⌫'];
-  return `<div class="keypad">${extra}${tasti.map((t) => `<button data-k="${t}">${t}</button>`).join('')}</div>`;
-}
-function leggiTasti(display, { permettiSegno = false } = {}) {
-  app.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => {
-    const k = b.dataset.k;
-    display.value = k === '⌫' ? display.value.slice(0, -1) : display.value + k;
-  }));
-  if (permettiSegno) app.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => {
-    display.value = b.dataset.s + display.value.replace(/^[+-]/, '');
-  }));
+let toastTimer;
+function errore(msg) {
+  const t = $('toast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 3500);
 }
 
+// --- barra superiore: indietro e percorso -------------------------------------
+function barra({ indietro = null, percorso = [] } = {}) {
+  const b = $('indietro');
+  b.hidden = !indietro;
+  b.onclick = indietro ? () => { location.hash = indietro; } : null;
+  $('percorso').innerHTML = percorso.map((p) => `<b>${esc(p)}</b>`).join('<i>›</i>');
+  $('admin-link').hidden = Boolean(indietro);
+}
+
+// --- schermo intero ----------------------------------------------------------
+const pieno = () => document.fullscreenElement ?? document.webkitFullscreenElement;
+const puoPieno = () => Boolean(document.documentElement.requestFullscreen ?? document.documentElement.webkitRequestFullscreen);
+function entraPieno() {
+  const el = document.documentElement;
+  const req = el.requestFullscreen ?? el.webkitRequestFullscreen;
+  if (req && !pieno()) Promise.resolve(req.call(el, { navigationUI: 'hide' })).catch(() => {});
+}
+$('schermo').hidden = !puoPieno() || matchMedia('(display-mode: fullscreen)').matches;
+$('schermo').onclick = () => (pieno() ? (document.exitFullscreen ?? document.webkitExitFullscreen).call(document) : entraPieno());
+// al primo tocco su una schermata operatore torna a schermo intero (i browser lo permettono solo dopo un gesto)
+addEventListener('pointerdown', (e) => {
+  if (!document.body.classList.contains('admin') && !e.target.closest('#schermo')) entraPieno();
+}, { capture: true });
+
+// --- inattività: dopo 2 minuti si torna alla scelta del materiale ---------------
+let inattivo;
+const riarma = () => {
+  clearTimeout(inattivo);
+  inattivo = setTimeout(() => {
+    const h = location.hash || '#/';
+    if (h !== '#/' && !h.startsWith('#/admin')) location.hash = '#/';
+  }, 120_000);
+};
+['pointerdown', 'keydown'].forEach((ev) => addEventListener(ev, riarma, { passive: true }));
+riarma();
+
+// --- rotte ---------------------------------------------------------------------
 const rotte = [
   [/^\/$/, home],
   [/^\/forma\/([^/]+)$/, forma],
-  [/^\/spessore\/([^/]+)\/([^/]+)$/, spessore],
-  [/^\/misura\/([^/]+)\/([^/]+)\/([^/]+)$/, misura],
+  [/^\/misura\/([^/]+)\/([^/]+)$/, misura],
   [/^\/quantita\/(\d+)$/, quantita],
   [/^\/admin$/, admin],
 ];
 
 async function route() {
   const path = location.hash.slice(1) || '/';
+  document.body.classList.toggle('admin', path === '/admin');
+  document.querySelector('.velo')?.remove();
   for (const [re, fn] of rotte) {
     const m = path.match(re);
     if (m) {
       try { await fn(...m.slice(1).map(decodeURIComponent)); }
-      catch (e) { render(`${back('#/')}<p class="err">${esc(e.message)}</p>`); }
+      catch (e) { barra({ indietro: '#/' }); render(`<p class="messaggio">${esc(e.message)}</p>`); }
       return;
     }
   }
@@ -72,102 +106,150 @@ async function route() {
 addEventListener('hashchange', route);
 route();
 
+// --- schermate operatore ---------------------------------------------------------
 async function home() {
+  barra();
   const materiali = await api('/api/materiali');
-  render(`<h1>Scegli il materiale</h1><div class="grid">${materiali.map((m) => `<a class="tile" href="#/forma/${enc(m.nome)}">${esc(m.nome)}</a>`).join('')}</div>`);
+  render(`<h1>Scegli il materiale</h1><div class="griglia">${materiali.map((m) =>
+    `<a class="tile" href="#/forma/${enc(m.nome)}">${esc(m.nome.replace(/_/g, ' '))}</a>`).join('')}</div>`);
 }
+
+const ICONE = {
+  TONDO: '<circle cx="50" cy="50" r="38"/>',
+  QUADRO: '<rect x="14" y="14" width="72" height="72" rx="4"/>',
+  ESAGONO: '<path d="M50 10l35 20v40L50 90 15 70V30z"/>',
+  TUBO: '<circle cx="50" cy="50" r="38"/><circle cx="50" cy="50" r="22"/>',
+};
+const icona = (f) => (ICONE[f] ? `<svg viewBox="0 0 100 100" aria-hidden="true">${ICONE[f]}</svg>` : '');
 
 async function forma(materiale) {
+  barra({ indietro: '#/', percorso: [materiale] });
   const forme = await api(`/api/forme?materiale=${enc(materiale)}`);
-  render(`${back('#/')}<h1>${esc(materiale)}: scegli la forma</h1><div class="grid">${forme.map((f) =>
-    `<a class="tile" href="#/${f.forma === 'TUBO' ? 'spessore' : 'misura'}/${enc(materiale)}/${enc(f.forma)}${f.forma === 'TUBO' ? '' : '/0'}">${esc(f.forma)}</a>`).join('')}</div>`);
+  if (forme.length === 1) return location.replace(`#/misura/${enc(materiale)}/${enc(forme[0].forma)}`);
+  render(`<h1>Scegli la forma</h1><div class="griglia larga">${forme.map((f) =>
+    `<a class="tile forma" href="#/misura/${enc(materiale)}/${enc(f.forma)}">${icona(f.forma)}${esc(f.forma)}</a>`).join('')}</div>`);
 }
 
-function inputNumerico({ titolo, indietro, conferma, suggerimenti = '' }) {
-  render(`${back(indietro)}<h1>${titolo}</h1><p class="err" id="err"></p>
-    <input class="display" id="val" inputmode="none" autocomplete="off">${suggerimenti}${tastierino()}
-    <button class="primary" id="ok">Conferma</button>`);
-  const val = document.getElementById('val');
-  leggiTasti(val);
-  document.getElementById('ok').addEventListener('click', async () => {
-    if (!val.value) return (document.getElementById('err').textContent = 'Inserire un valore valido');
-    try { await conferma(val.value); } catch (e) { document.getElementById('err').textContent = e.message; }
-  });
+async function misura(materiale, forma) {
+  barra({ indietro: `#/forma/${enc(materiale)}`, percorso: [materiale, forma] });
+  const misure = await api(`/api/misure?materiale=${enc(materiale)}&forma=${enc(forma)}`);
+  if (!misure.length) return render('<p class="messaggio">Nessuna misura registrata per questa forma.</p>');
+  render(`<h1>Scegli la misura</h1><div class="griglia stretta">${misure.map((m) =>
+    `<a class="tile${m.barre > 0 ? '' : ' vuota'}" href="#/quantita/${m.id}">
+      <span class="num">${fmt(m.misura)}</span>${m.spessore ? `<span class="sp">sp. ${fmt(m.spessore)}</span>` : ''}
+      <small>${fmt(m.barre)} barre</small></a>`).join('')}</div>`);
 }
 
-function spessore(materiale, forma) {
-  inputNumerico({
-    titolo: `Spessore della barra ${esc(materiale)} ${esc(forma)}`, indietro: `#/forma/${enc(materiale)}`,
-    conferma: async (v) => {
-      const misure = await api(`/api/misure?materiale=${enc(materiale)}&forma=${enc(forma)}`);
-      const n = Number(v.replace(',', '.'));
-      if (!misure.some((m) => m.spessore === n)) throw new Error('Spessore non riconosciuto!');
-      location.hash = `#/misura/${enc(materiale)}/${enc(forma)}/${enc(v)}`;
-    },
-  });
-}
-
-async function misura(materiale, forma, sp) {
-  const elenco = await api(`/api/misure?materiale=${enc(materiale)}&forma=${enc(forma)}`);
-  const sNum = Number(sp.replace(',', '.')) || 0;
-  const filtrate = elenco.filter((m) => (m.spessore ?? 0) === sNum);
-  inputNumerico({
-    titolo: `Misura della barra ${esc(materiale)} ${esc(forma)}${sNum ? ` sp. ${esc(sp)}` : ''}`,
-    indietro: sNum ? `#/spessore/${enc(materiale)}/${enc(forma)}` : `#/forma/${enc(materiale)}`,
-    suggerimenti: `<div class="row">${filtrate.map((m) => `<button class="small" data-m="${m.misura}">${fmt(m.misura)}</button>`).join('')}</div>`,
-    conferma: async (v) => {
-      const a = await api(`/api/articolo?materiale=${enc(materiale)}&forma=${enc(forma)}&misura=${enc(v)}&spessore=${enc(sNum)}`)
-        .catch(() => { throw new Error('Misura non riconosciuta!'); });
-      location.hash = `#/quantita/${a.id}`;
-    },
-  });
-  app.querySelectorAll('[data-m]').forEach((b) => b.addEventListener('click', () => {
-    document.getElementById('val').value = fmt(Number(b.dataset.m));
-  }));
-}
+const nomeArticolo = (a) => `${a.materiale.replace(/_/g, ' ')} ${a.forma} ${fmt(a.misura)}${a.spessore ? ` sp. ${fmt(a.spessore)}` : ''}`;
 
 async function quantita(id) {
-  const a = await api(`/api/articoli/${id}`);
-  let modo = 'barre';
-  render(`${back(`#/forma/${enc(a.materiale)}`)}<h1>Quantità: ${esc(a.materiale)} ${esc(a.forma)} ${fmt(a.misura)}${a.spessore ? ` sp. ${fmt(a.spessore)}` : ''}</h1>
-    <div class="info">Barre a magazzino: <strong>${fmt(a.barre)}</strong> · ${fmt(a.quantita)} kg${a.note ? `<br>${esc(a.note)}` : ''}</div>
-    <p class="err" id="err"></p>
-    <input class="display" id="val" value="+" inputmode="none" autocomplete="off">
-    <div class="row"><button data-s="-">− Scarico</button><button data-s="+">+ Carico</button></div>
-    <div class="row"><button id="m-barre" class="selected">BARRE</button><button id="m-kg">KG</button></div>
-    ${tastierino()}<button class="primary" id="ok">Conferma quantità</button>`);
-  const val = document.getElementById('val');
-  leggiTasti(val, { permettiSegno: true });
-  const setModo = (m) => {
-    modo = m;
-    document.getElementById('m-barre').classList.toggle('selected', m === 'barre');
-    document.getElementById('m-kg').classList.toggle('selected', m === 'kg');
+  const [a, imp] = await Promise.all([api(`/api/articoli/${id}`), api('/api/impostazioni')]);
+  const lunghezza = imp.lunghezza_barra_m;
+  barra({ indietro: `#/misura/${enc(a.materiale)}/${enc(a.forma)}`, percorso: [a.materiale, a.forma, fmt(a.misura) + (a.spessore ? ` sp. ${fmt(a.spessore)}` : '')] });
+  // nessun verso preselezionato: l'operatore sceglie sempre prelievo o carico
+  const stato = { segno: 0, modo: 'barre', testo: '' };
+
+  render(`<div class="quantita">
+    <div class="pannello">
+      <div class="articolo"><div class="nome">${esc(nomeArticolo(a))}</div>
+        <div class="giacenza"><div><span>A magazzino</span><strong>${fmt(a.barre)} barre</strong></div><div><span>Peso totale</span><strong>${fmt(a.quantita)} kg</strong></div></div>
+        ${a.note ? `<div class="nota">${esc(a.note)}</div>` : ''}</div>
+      <div class="segmenti movimento" id="segno"><button data-v="-1">− Prelievo</button><button data-v="1">+ Carico</button></div>
+      <div class="segmenti" id="modo"><button data-v="barre">Barre</button><button data-v="kg">Kg</button></div>
+      <div class="display"><div class="valore" id="valore"></div><div class="unita" id="unita"></div></div>
+      <div class="anteprima" id="anteprima"></div>
+    </div>
+    <div class="pannello">
+      <div class="tastierino">${['1','2','3','4','5','6','7','8','9',',','0','⌫'].map((k) => `<button data-k="${k}">${k}</button>`).join('')}</div>
+      <button class="grande" id="ok" disabled>Conferma</button>
+    </div></div>`);
+
+  const valore = () => Number(stato.testo.replace(',', '.'));
+  const aggiorna = () => {
+    $('segno').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.v) === stato.segno)));
+    $('modo').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === stato.modo)));
+    const v = $('valore');
+    v.textContent = stato.testo ? `${stato.segno > 0 ? '+ ' : stato.segno < 0 ? '− ' : ''}${stato.testo}` : '0';
+    v.classList.toggle('vuoto', !stato.testo);
+    $('unita').textContent = stato.modo === 'kg' ? 'kg' : 'barre';
+    const n = valore();
+    const numeroOk = stato.testo !== '' && Number.isFinite(n) && n > 0;
+    const ok = numeroOk && stato.segno !== 0;
+    $('ok').disabled = !ok;
+    $('ok').textContent = numeroOk && !stato.segno ? 'Scegli prelievo o carico' : 'Conferma';
+    const p = $('anteprima');
+    if (!ok) { p.textContent = ''; p.classList.remove('negativa'); return; }
+    const delta = stato.segno * (stato.modo === 'kg' ? n / (a.peso * lunghezza) : n);
+    const dopo = Math.round((a.barre + delta) * 1000) / 1000;
+    p.innerHTML = `Dopo: <strong>${fmt(dopo)} barre</strong> · ${fmt(dopo * a.peso * lunghezza)} kg${dopo < 0 ? ' — più di quanto risulta a magazzino' : ''}`;
+    p.classList.toggle('negativa', dopo < 0);
   };
-  document.getElementById('m-barre').onclick = () => setModo('barre');
-  document.getElementById('m-kg').onclick = () => setModo('kg');
-  document.getElementById('ok').onclick = () => {
-    const n = Number(val.value.replace(',', '.'));
-    if (!val.value || !Number.isFinite(n) || n === 0) return (document.getElementById('err').textContent = 'Inserire una quantità valida');
-    riepilogo(a, modo, n);
+  $('segno').onclick = (e) => { const b = e.target.closest('button'); if (b) { stato.segno = Number(b.dataset.v); aggiorna(); } };
+  $('modo').onclick = (e) => { const b = e.target.closest('button'); if (b) { stato.modo = b.dataset.v; aggiorna(); } };
+  const tasto = (k) => {
+    if (k === '⌫') stato.testo = stato.testo.slice(0, -1);
+    else if (k === ',') { if (!stato.testo.includes(',')) stato.testo = (stato.testo || '0') + ','; }
+    else if (stato.testo.length < 8 && !/,\d{3}$/.test(stato.testo)) stato.testo = stato.testo === '0' ? k : stato.testo + k;
+    aggiorna();
+  };
+  app.querySelector('.tastierino').onclick = (e) => { const b = e.target.closest('[data-k]'); if (b) tasto(b.dataset.k); };
+  // tenendo premuto ⌫ si cancella tutto
+  const canc = app.querySelector('[data-k="⌫"]');
+  let lungo;
+  canc.onpointerdown = () => { lungo = setTimeout(() => { stato.testo = ''; aggiorna(); }, 600); };
+  canc.onpointerup = canc.onpointerleave = () => clearTimeout(lungo);
+  // tastiera fisica, se collegata
+  onkeydown = (e) => {
+    if (!location.hash.startsWith('#/quantita/') || document.querySelector('.velo')) return;
+    if (/^[0-9]$/.test(e.key)) tasto(e.key);
+    else if (e.key === ',' || e.key === '.') tasto(',');
+    else if (e.key === 'Backspace') tasto('⌫');
+    else if (e.key === 'Enter' && !$('ok').disabled) $('ok').click();
+  };
+  $('ok').onclick = () => conferma(a, stato.modo, stato.segno * valore());
+  aggiorna();
+}
+
+function conferma(a, modo, n) {
+  const unita = modo === 'kg' ? 'kg' : (Math.abs(n) === 1 ? 'barra' : 'barre');
+  const velo = document.createElement('div');
+  velo.className = 'velo';
+  velo.innerHTML = `<div class="scheda" role="dialog" aria-modal="true" aria-labelledby="conf-t">
+    <h2 id="conf-t">Confermi il movimento?</h2>
+    <div class="movimento-grande ${n > 0 ? 'carico' : 'scarico'}">${n > 0 ? '+' : '−'} ${fmt(Math.abs(n))} ${unita}</div>
+    <dl class="riepilogo"><dt>Articolo</dt><dd>${esc(nomeArticolo(a))}</dd><dt>Movimento</dt><dd>${n > 0 ? 'Carico' : 'Prelievo'}</dd></dl>
+    <div class="azioni"><button class="grande secondario" id="annulla">Annulla</button><button class="grande" id="si">Conferma</button></div></div>`;
+  document.body.append(velo);
+  const chiudi = () => velo.remove();
+  velo.onclick = (e) => { if (e.target === velo) chiudi(); };
+  velo.querySelector('#annulla').onclick = chiudi;
+  const si = velo.querySelector('#si');
+  si.onclick = async () => {
+    si.disabled = true;
+    try {
+      const dopo = await api('/api/movimenti', { method: 'POST', body: { articolo_id: a.id, modo, quantita: n } });
+      chiudi();
+      esito(a, n, unita, dopo);
+    } catch (e) { si.disabled = false; errore(e.message); }
   };
 }
 
-function riepilogo(a, modo, n) {
-  render(`${back(`#/quantita/${a.id}`)}<h1>Riepilogo inserimento</h1><p class="err" id="err"></p>
-    <table><tr><th>Materiale</th><td>${esc(a.materiale)}</td></tr><tr><th>Forma</th><td>${esc(a.forma)}</td></tr>
-    <tr><th>Misura</th><td>${fmt(a.misura)}</td></tr>${a.spessore ? `<tr><th>Spessore</th><td>${fmt(a.spessore)}</td></tr>` : ''}
-    <tr><th>Movimento</th><td>${n > 0 ? '+' : ''}${fmt(n)} ${modo === 'kg' ? 'kg' : 'barre'}</td></tr></table>
-    <button class="primary" id="ok" style="margin-top:12px;width:100%">Confermi l'inserimento?</button>`);
-  document.getElementById('ok').onclick = async () => {
-    try {
-      await api('/api/movimenti', { method: 'POST', body: { articolo_id: a.id, modo, quantita: n } });
-      location.hash = '#/';
-    } catch (e) { document.getElementById('err').textContent = e.message; }
-  };
+function esito(a, n, unita, dopo) {
+  barra({ percorso: [] });
+  render(`<div class="esito" id="esito"><div class="spunta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h1>${n > 0 ? 'Carico' : 'Prelievo'} registrato</h1>
+    <p>${esc(nomeArticolo(a))}: ${n > 0 ? '+' : '−'}${fmt(Math.abs(n))} ${unita}</p>
+    <p>Ora a magazzino: <strong>${fmt(dopo?.barre)} barre</strong></p>
+    <p style="margin-top:12px">Tocca lo schermo per continuare</p></div>`);
+  const via = () => { clearTimeout(t); if ($('esito')) location.hash = '#/'; };
+  const t = setTimeout(via, 4000);
+  $('esito').onclick = via;
 }
 
 // --- amministrazione ---------------------------------------------------------
 async function admin() {
+  barra({ indietro: '#/', percorso: ['Amministrazione'] });
+  if (!app.querySelector('#righe')) render('');
   const [righe, imp] = await Promise.all([api('/api/admin/magazzino', { admin: true }), api('/api/impostazioni')]);
   render(`${back('#/')}<h1>Amministrazione magazzino</h1>
     <div class="row"><label>Lunghezza barra (m)<input id="lung" value="${fmt(imp.lunghezza_barra_m)}"></label>

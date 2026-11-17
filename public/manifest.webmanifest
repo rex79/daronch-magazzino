@@ -1,0 +1,14 @@
+{
+  "name": "Magazzino",
+  "short_name": "Magazzino",
+  "start_url": "/#/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#12161b",
+  "theme_color": "#1b2129",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
