@@ -63,9 +63,13 @@ function entraPieno() {
 }
 $('schermo').hidden = !puoPieno() || matchMedia('(display-mode: fullscreen)').matches;
 $('schermo').onclick = () => (pieno() ? (document.exitFullscreen ?? document.webkitExitFullscreen).call(document) : entraPieno());
-// al primo tocco su una schermata operatore torna a schermo intero (i browser lo permettono solo dopo un gesto)
+const esciPieno = () => { if (pieno()) Promise.resolve((document.exitFullscreen ?? document.webkitExitFullscreen).call(document)).catch(() => {}); };
+// al primo tocco su una schermata operatore torna a schermo intero (i browser lo permettono solo dopo un gesto).
+// Solo con il dito o la penna: l'admin si usa dal computer con il mouse e resta in una finestra normale.
 addEventListener('pointerdown', (e) => {
-  if (!document.body.classList.contains('admin') && !e.target.closest('#schermo')) entraPieno();
+  if (e.pointerType === 'mouse' || document.body.classList.contains('admin')) return;
+  if (e.target.closest('#schermo, #admin-link')) return;
+  entraPieno();
 }, { capture: true });
 
 // --- inattività: dopo 2 minuti si torna alla scelta del materiale ---------------
@@ -91,7 +95,9 @@ const rotte = [
 
 async function route() {
   const path = location.hash.slice(1) || '/';
-  document.body.classList.toggle('admin', path === '/admin');
+  const inAdmin = path === '/admin';
+  document.body.classList.toggle('admin', inAdmin);
+  if (inAdmin) esciPieno();
   document.querySelector('.velo')?.remove();
   for (const [re, fn] of rotte) {
     const m = path.match(re);
